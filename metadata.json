@@ -1,0 +1,6 @@
+{
+  "name": "Training Management & Certification System",
+  "description": "Production-ready foundation for managing courses, dynamic QR attendance, online training, analytics, and certification.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

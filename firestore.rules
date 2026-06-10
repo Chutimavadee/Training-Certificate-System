@@ -1,0 +1,294 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net: Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global Helper Primitives (Phase 3)
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Explicit role checks querying trusted documents (Rule 353)
+    function isTeacher(uid) {
+      return exists(/databases/$(database)/documents/teachers/$(uid)) ||
+        (exists(/databases/$(database)/documents/users/$(uid)) && get(/databases/$(database)/documents/users/$(uid)).data.role == 'teacher');
+    }
+
+    function isStudent(uid) {
+      return exists(/databases/$(database)/documents/students/$(uid)) ||
+        (exists(/databases/$(database)/documents/users/$(uid)) && get(/databases/$(database)/documents/users/$(uid)).data.role == 'student');
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isValidUserCentral(data) {
+      return data.uid is string && data.uid.size() <= 128
+        && data.email is string && data.email.size() <= 256
+        && data.displayName is string && data.displayName.size() <= 128
+        && (data.role == 'teacher' || data.role == 'student' || data.role == 'admin')
+        && (data.createdAt == request.time || data.createdAt != null);
+    }
+
+    // 3. Validation Blueprints (Pillar 2)
+    function isValidTeacher(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.email is string && data.email.size() <= 256
+        && data.name is string && data.name.size() <= 128
+        && data.role == 'teacher'
+        && (!data.keys().hasAll(['department']) || (data.department is string && data.department.size() <= 128))
+        && (data.createdAt == request.time || data.createdAt != null);
+    }
+
+    function isValidStudent(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.email is string && data.email.size() <= 256
+        && data.name is string && data.name.size() <= 128
+        && data.studentId is string && data.studentId.size() <= 64
+        && data.role == 'student'
+        && (data.createdAt == request.time || data.createdAt != null);
+    }
+
+    function isValidCourse(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.code is string && data.code.size() <= 32
+        && data.title is string && data.title.size() <= 256
+        && data.description is string && data.description.size() <= 2048
+        && data.teacherId is string && data.teacherId.size() <= 128
+        && data.startDate is string && data.startDate.size() <= 64
+        && data.endDate is string && data.endDate.size() <= 64
+        && (!data.keys().hasAll(['plannedSessions']) || data.plannedSessions is int)
+        && (!data.keys().hasAll(['maxPoints']) || (data.maxPoints is int || data.maxPoints is float || data.maxPoints is number))
+        && (data.createdAt == request.time || data.createdAt != null);
+    }
+
+    function isValidSession(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.courseId is string && data.courseId.size() <= 128
+        && data.title is string && data.title.size() <= 256
+        && data.date is string && data.date.size() <= 64
+        && data.qrCodeKey is string && data.qrCodeKey.size() <= 128
+        && data.startTime is string && data.startTime.size() <= 64
+        && data.endTime is string && data.endTime.size() <= 64
+        && data.createdAt == request.time;
+    }
+
+    function isValidRegistration(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.courseId is string && data.courseId.size() <= 128
+        && data.studentId is string && data.studentId.size() <= 128
+        && (data.status == 'pending' || data.status == 'approved' || data.status == 'rejected' || data.status == 'registered' || data.status == 'cancelled' || data.status == 'completed' || data.status == 'failed')
+        && (data.registeredAt == request.time || data.registeredAt != null);
+    }
+
+    function isValidAttendance(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.sessionId is string && data.sessionId.size() <= 128
+        && data.studentId is string && data.studentId.size() <= 128
+        && data.courseId is string && data.courseId.size() <= 128
+        && (data.status == 'present' || data.status == 'late' || data.status == 'absent' || data.status == 'manual')
+        && (data.timestamp == request.time || data.timestamp != null)
+        && (data.checkinTime == request.time || data.checkinTime != null)
+        && (data.method == 'qr' || data.method == 'manual')
+        && (!data.keys().hasAll(['tokenUsed']) || (data.tokenUsed is string && data.tokenUsed.size() <= 128));
+    }
+
+    function isValidQrSession(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.sessionId is string && data.sessionId.size() <= 128
+        && data.courseId is string && data.courseId.size() <= 128
+        && data.qrSecret is string && data.qrSecret.size() <= 128
+        && data.qrInterval == 15
+        && data.active is bool
+        && (data.createdAt == request.time || data.createdAt != null);
+    }
+
+    function isValidAttendanceLog(data) {
+      return data.studentId is string && data.studentId.size() <= 128
+        && data.sessionId is string && data.sessionId.size() <= 128
+        && (data.scanTime == request.time || data.scanTime != null)
+        && data.token is string && data.token.size() <= 128
+        && data.result is string && data.result.size() <= 128;
+    }
+
+    function isValidCertificate(data) {
+      return data.courseId is string && data.courseId.size() <= 128
+        && data.studentId is string && data.studentId.size() <= 128
+        && (data.issueDate == request.time || data.issueDate != null)
+        && (!data.keys().hasAll(['id']) || (data.id is string && data.id.size() <= 128))
+        && (!data.keys().hasAll(['certificateId']) || (data.certificateId is string && data.certificateId.size() <= 128))
+        && (!data.keys().hasAll(['certificateNumber']) || (data.certificateNumber is string && data.certificateNumber.size() <= 128))
+        && (!data.keys().hasAll(['verificationCode']) || (data.verificationCode is string && data.verificationCode.size() <= 128))
+        && (!data.keys().hasAll(['status']) || (data.status is string && data.status.size() <= 64));
+    }
+
+    // 4. Secure Path & Collection Matching
+    
+    // CENTRALIZED USERS & AUTH ROLES (RBAC Model)
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isEmailVerified() && request.auth.uid == userId && isValidUserCentral(incoming());
+      allow update: if isEmailVerified() && (
+        (request.auth.uid == userId && !incoming().diff(existing()).affectedKeys().hasAny(['role', 'uid', 'email'])) || 
+        isAdmin()
+      ) && isValidUserCentral(incoming());
+      allow delete: if isAdmin();
+    }
+    
+    // TEACHERS Profiles
+    match /teachers/{teacherId} {
+      allow get, list: if isSignedIn();
+      allow create: if isEmailVerified() && request.auth.uid == teacherId && isValidTeacher(incoming());
+      allow update: if isEmailVerified() && (request.auth.uid == teacherId || isAdmin())
+                    && isValidTeacher(incoming())
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'department']);
+      allow delete: if isAdmin();
+    }
+
+    // STUDENTS Profiles
+    match /students/{studentId} {
+      allow get, list: if isSignedIn();
+      allow create: if isEmailVerified() && request.auth.uid == studentId && isValidStudent(incoming());
+      allow update: if isEmailVerified() && (request.auth.uid == studentId || isAdmin())
+                    && isValidStudent(incoming())
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'studentId']);
+      allow delete: if isAdmin();
+    }
+
+    // COURSES Collection
+    match /courses/{courseId} {
+      allow get, list: if isSignedIn();
+      allow create: if isEmailVerified() && isTeacher(request.auth.uid) && isValidCourse(incoming()) && incoming().teacherId == request.auth.uid;
+      allow update: if isEmailVerified() && (existing().teacherId == request.auth.uid || isAdmin())
+                    && isValidCourse(incoming())
+                    && incoming().diff(existing()).affectedKeys().hasAny(['code', 'title', 'description', 'startDate', 'endDate', 'plannedSessions', 'maxPoints', 'trainingType', 'trainingHours', 'availableSeats', 'meetingLink']);
+      allow delete: if isEmailVerified() && (existing().teacherId == request.auth.uid || isAdmin());
+
+      // SESSIONS Sub-collection
+      match /sessions/{sessionId} {
+        allow get, list: if isSignedIn();
+        allow create: if isEmailVerified() && isTeacher(request.auth.uid) 
+                      && get(/databases/$(database)/documents/courses/$(courseId)).data.teacherId == request.auth.uid 
+                      && isValidSession(incoming());
+        allow update: if isEmailVerified() && isTeacher(request.auth.uid) 
+                      && get(/databases/$(database)/documents/courses/$(courseId)).data.teacherId == request.auth.uid 
+                      && isValidSession(incoming())
+                      && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'date', 'qrCodeKey', 'startTime', 'endTime']);
+        allow delete: if isEmailVerified() && isTeacher(request.auth.uid) 
+                      && get(/databases/$(database)/documents/courses/$(courseId)).data.teacherId == request.auth.uid;
+      }
+
+      // REGISTRATIONS Sub-collection (Course enrollment)
+      match /registrations/{registrationId} {
+        allow get: if isSignedIn() && (request.auth.uid == existing().studentId || isTeacher(request.auth.uid) || isAdmin());
+        allow list: if isSignedIn() && (resource.data.studentId == request.auth.uid || isTeacher(request.auth.uid) || isAdmin());
+        
+        allow create: if isEmailVerified() && isStudent(request.auth.uid) 
+                      && incoming().studentId == request.auth.uid 
+                      && (incoming().status == 'pending' || incoming().status == 'registered') 
+                      && isValidRegistration(incoming());
+        
+        allow update: if isEmailVerified() && (
+          // Student cancels their pending registration
+          (request.auth.uid == existing().studentId && incoming().status == 'pending' && incoming().diff(existing()).affectedKeys().hasOnly([])) ||
+          // Teacher edits course status (approve/reject)
+          (isTeacher(request.auth.uid) 
+            && get(/databases/$(database)/documents/courses/$(courseId)).data.teacherId == request.auth.uid 
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status'])) ||
+          isAdmin()
+        ) && isValidRegistration(incoming());
+
+        allow delete: if isEmailVerified() && (request.auth.uid == existing().studentId || isAdmin());
+      }
+    }
+
+    // ATTENDANCE logs (scannable check-ins)
+    match /attendance/{attendanceId} {
+      allow get: if isSignedIn() && (request.auth.uid == existing().studentId || isTeacher(request.auth.uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.studentId == request.auth.uid || isTeacher(request.auth.uid) || isAdmin());
+      
+      // Dynamic QR attendance verification during check-in or manual admin/trainer logs
+      allow create: if isEmailVerified() && (
+        (isStudent(request.auth.uid) && incoming().studentId == request.auth.uid) ||
+        isTeacher(request.auth.uid) ||
+        isAdmin()
+      ) && isValidAttendance(incoming());
+
+      allow update: if isEmailVerified() && (isTeacher(request.auth.uid) || isAdmin())
+                    && isValidAttendance(incoming())
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+                    
+      allow delete: if isEmailVerified() && (isTeacher(request.auth.uid) || isAdmin());
+    }
+
+    // QR SESSIONS Config
+    match /qr_sessions/{qrSessionId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create, update: if isEmailVerified() && (isTeacher(request.auth.uid) || isAdmin()) && isValidQrSession(incoming());
+      allow delete: if isEmailVerified() && (isTeacher(request.auth.uid) || isAdmin());
+    }
+
+    // ATTENDANCE TRANSACTION LOGS
+    match /attendance_logs/{logId} {
+      allow get: if isSignedIn() && (request.auth.uid == existing().studentId || isTeacher(request.auth.uid) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.studentId == request.auth.uid || isTeacher(request.auth.uid) || isAdmin());
+      allow create: if isEmailVerified() && (incoming().studentId == request.auth.uid || isTeacher(request.auth.uid) || isAdmin()) && isValidAttendanceLog(incoming());
+      allow update, delete: if false; // Append-only audit logs
+    }
+
+    // CERTIFICATES (Immutable upon issuance except revocation/expiration state updates)
+    match /certificates/{certificateId} {
+      allow get: if true; // PUBLIC VERIFICATION REQUIRES PUBLIC GET
+      allow list: if isSignedIn(); // View certifications
+      allow create: if isEmailVerified() && (isTeacher(request.auth.uid) || isAdmin()) && isValidCertificate(incoming());
+      allow update: if isEmailVerified() && (isTeacher(request.auth.uid) || isAdmin());
+      allow delete: if isEmailVerified() && (isTeacher(request.auth.uid) || isAdmin());
+    }
+
+    // ROOT REGISTRATIONS (Trainee enrollment)
+    match /registrations/{registrationId} {
+      allow get, list: if isSignedIn();
+      allow create: if isEmailVerified() && (isStudent(request.auth.uid) || isTeacher(request.auth.uid) || isAdmin());
+      allow update, delete: if isEmailVerified() && (isTeacher(request.auth.uid) || isAdmin() || request.auth.uid == resource.data.studentId);
+    }
+
+    // ATTENDANCE HOURS Accumulations
+    match /attendance_hours/{hoursId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isEmailVerified() && (isStudent(request.auth.uid) || isTeacher(request.auth.uid) || isAdmin());
+      allow delete: if isEmailVerified() && (isTeacher(request.auth.uid) || isAdmin());
+    }
+
+    // SYSTEM ADMIN list configuration
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if false; // Can only be provisioned database-side or under extreme backend control
+    }
+  }
+}

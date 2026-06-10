@@ -1,0 +1,192 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Central user authentication and role management document",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User UID matching Firebase Authentication ID" },
+        "email": { "type": "string", "format": "email", "description": "Google email associated with account" },
+        "displayName": { "type": "string", "description": "Display name of the user" },
+        "role": { "type": "string", "enum": ["teacher", "student", "admin"], "description": "Core RBAC authorization role" },
+        "createdAt": { "type": "string", "description": "Server timestamp of central account creation" },
+        "lastLogin": { "type": "string", "description": "Server timestamp of last successful system access" }
+      },
+      "required": ["uid", "email", "displayName", "role", "createdAt", "lastLogin"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Profile information for trainers/teachers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "User UID matching Firebase Authentication ID" },
+        "email": { "type": "string", "format": "email", "description": "Email address of the trainer" },
+        "name": { "type": "string", "description": "Full name of the trainer" },
+        "role": { "type": "string", "enum": ["teacher"], "description": "System role (strictly set to 'teacher')" },
+        "department": { "type": "string", "description": "Trainer's academic/professional department" },
+        "createdAt": { "type": "string", "description": "Server timestamp of creation" }
+      },
+      "required": ["id", "email", "name", "role", "createdAt"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Profile information for trainees/students",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "User UID matching Firebase Authentication ID" },
+        "email": { "type": "string", "format": "email", "description": "Email address of the student" },
+        "name": { "type": "string", "description": "Full name of the student" },
+        "role": { "type": "string", "enum": ["student"], "description": "System role (strictly 'student')" },
+        "studentId": { "type": "string", "description": "Offical university or organization identification number" },
+        "createdAt": { "type": "string", "description": "Server timestamp of creation" }
+      },
+      "required": ["id", "email", "name", "role", "studentId", "createdAt"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "Training courses managed in the system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the course" },
+        "code": { "type": "string", "description": "Course course-code (e.g., CS-201)" },
+        "title": { "type": "string", "description": "Verbose name of the course" },
+        "description": { "type": "string", "description": "Full course description, syllabus, or pre-requisites" },
+        "teacherId": { "type": "string", "description": "Trainer's UID (references teachers collection)" },
+        "startDate": { "type": "string", "description": "ISO date representing training commencement" },
+        "endDate": { "type": "string", "description": "ISO date representing training culmination" },
+        "createdAt": { "type": "string", "description": "Server timestamp of creation" }
+      },
+      "required": ["id", "code", "title", "teacherId", "startDate", "endDate", "createdAt"]
+    },
+    "Session": {
+      "title": "Session",
+      "description": "Classes/teaching sessions within a training course",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the session" },
+        "courseId": { "type": "string", "description": "Course identifier (references courses collection)" },
+        "title": { "type": "string", "description": "Title of the class session (e.g., Lecture 1: Getting Started)" },
+        "date": { "type": "string", "description": "ISO Date of the session" },
+        "qrCodeKey": { "type": "string", "description": "Hashed key for dynamic QR attendance generation" },
+        "startTime": { "type": "string", "description": "ISO timestamp of session beginning" },
+        "endTime": { "type": "string", "description": "ISO timestamp of session ending" },
+        "createdAt": { "type": "string", "description": "Server timestamp of creation" }
+      },
+      "required": ["id", "courseId", "title", "date", "qrCodeKey", "startTime", "endTime", "createdAt"]
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "description": "Trainee attendance record logs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the attendance entry (often studentId_sessionId)" },
+        "sessionId": { "type": "string", "description": "Session identifier (references sessions collection)" },
+        "studentId": { "type": "string", "description": "Student UID (references students collection)" },
+        "courseId": { "type": "string", "description": "Course identifier (references courses collection)" },
+        "status": { "type": "string", "enum": ["present", "late", "absent", "manual"], "description": "Attendance state" },
+        "timestamp": { "type": "string", "description": "Server timestamp of attendance tracking" },
+        "checkinTime": { "type": "string", "description": "Server timestamp of successful student registration scan" },
+        "method": { "type": "string", "enum": ["qr", "manual"], "description": "Origin method used to flag attendance status" },
+        "tokenUsed": { "type": "string", "description": "Rotated crypto stamp applied to authenticate scan session integrity" }
+      },
+      "required": ["id", "sessionId", "studentId", "courseId", "status", "timestamp", "checkinTime", "method"]
+    },
+    "QrSession": {
+      "title": "QrSession",
+      "description": "Dynamic rolling TOTP parameters representing an active classroom check-in sweep",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Session matching identifier" },
+        "sessionId": { "type": "string", "description": "References original course session ID" },
+        "courseId": { "type": "string", "description": "References academic training course ID" },
+        "qrSecret": { "type": "string", "description": "Cryptographic seed for client-side TOTP calculation" },
+        "qrInterval": { "type": "number", "description": "Time interval strictly locks to 15 seconds" },
+        "active": { "type": "boolean", "description": "Toggles dynamic QR token broadcast availability" },
+        "createdAt": { "type": "string", "description": "Server timestamp of initialization" }
+      },
+      "required": ["id", "sessionId", "courseId", "qrSecret", "qrInterval", "active", "createdAt"]
+    },
+    "AttendanceLog": {
+      "title": "AttendanceLog",
+      "description": "Continuous scanner telemetry debugging and security logs",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string", "description": "Trainee id completing transaction attempt" },
+        "sessionId": { "type": "string", "description": "Training session being targeted" },
+        "scanTime": { "type": "string", "description": "Exact server timestamp transaction attempted" },
+        "token": { "type": "string", "description": "Payload key analyzed by scanning agent" },
+        "result": { "type": "string", "description": "Operational audit result string (success / expired / duplicate)" }
+      },
+      "required": ["studentId", "sessionId", "scanTime", "token", "result"]
+    },
+    "Registration": {
+      "title": "Registration",
+      "description": "Course enrollment applications and approvals",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique registration ID (often studentId_courseId)" },
+        "courseId": { "type": "string", "description": "Course identifier to register (references courses collection)" },
+        "studentId": { "type": "string", "description": "Student UID submitting registration (references students)" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"], "description": "Verification status of the registration" },
+        "registeredAt": { "type": "string", "description": "Server timestamp of registration request" }
+      },
+      "required": ["id", "courseId", "studentId", "status", "registeredAt"]
+    },
+    "Certificate": {
+      "title": "Certificate",
+      "description": "Earned certificates issued to students upon course completion",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique credential UUID" },
+        "courseId": { "type": "string", "description": "Course identifier completed (references courses)" },
+        "studentId": { "type": "string", "description": "Student UID that completed the training (references students)" },
+        "issueDate": { "type": "string", "description": "Server timestamp of certificate issuance" },
+        "credentialUrl": { "type": "string", "description": "Storage or preview landing path for the PDF certificate" },
+        "qrVerificationUrl": { "type": "string", "description": "Validation URL to scan and confirm integrity" }
+      },
+      "required": ["id", "courseId", "studentId", "issueDate", "credentialUrl", "qrVerificationUrl"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "System account session authorization records"
+    },
+    "/teachers/{teacherId}": {
+      "schema": "Teacher",
+      "description": "Trainers registered in the system"
+    },
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Trainees registered in the system"
+    },
+    "/courses/{courseId}": {
+      "schema": "Course",
+      "description": "Dynamic or physical training courses"
+    },
+    "/courses/{courseId}/sessions/{sessionId}": {
+      "schema": "Session",
+      "description": "Sessions or classes designated under a course"
+    },
+    "/courses/{courseId}/registrations/{registrationId}": {
+      "schema": "Registration",
+      "description": "Enlisted student enrollments for courses"
+    },
+    "/attendance/{attendanceId}": {
+      "schema": "Attendance",
+      "description": "Logs of scanned QR session check-ins"
+    },
+    "/attendance_logs/{logId}": {
+      "schema": "AttendanceLog",
+      "description": "Live debugging event log streams for scanning transactions"
+    },
+    "/qr_sessions/{qrSessionId}": {
+      "schema": "QrSession",
+      "description": "Session config for generating dynamic TOTP tokens"
+    },
+    "/certificates/{certificateId}": {
+      "schema": "Certificate",
+      "description": "Issued course completion certificates"
+    }
+  }
+}
